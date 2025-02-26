@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-public class ArcticGameConroller : MonoBehaviour
+public class ArcticGameController : MonoBehaviour
 {
     void Start()
     {
@@ -26,11 +26,21 @@ public class ArcticGameConroller : MonoBehaviour
 
     private void HandleClick()
     {
-        GameObject hitItem = ScanForClickedItem(GeneralUtilities.PointerAsWorldPosition());
-        if (hitItem == null) return;
-
+        var clickedPos = GeneralUtilities.PointerAsWorldPosition();
+        GameObject hitItem = ScanForClickedItem(clickedPos);
+        if (hitItem == null)
+        {
+            if ( CurrentlySelectedPerson != null)
+            {
+                CurrentlySelectedPerson.SetCurrentMovementDestination(clickedPos);
+            }
+        }
+        else
+        {
         if (hitItem.TryGetComponent(out PersonController pc))
             HandlePlayerClick(pc);
+
+        }
     }
 
     PersonController CurrentlySelectedPerson { get; set; }
