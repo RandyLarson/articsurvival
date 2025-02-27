@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using static UnityEngine.RuleTile.TilingRuleOutput;
 
 [Serializable]
 public class PersonDataRuntime
@@ -16,11 +15,23 @@ public class PersonDataRuntime
     public float CurrentSpeed { get => _currentSpeed; set => _currentSpeed = value; }
 }
 
-
-public class PersonController : MonoBehaviour
+public class GamePiece : MonoBehaviour
 {
+    [SerializeField] protected GameObject SelectedHighlight;
     public bool IsSelected { get; set; }
-    [SerializeField] private GameObject SelectedHighlight;
+
+    public void SetSelected(bool value)
+    {
+        IsSelected = value;
+        SelectedHighlight.gameObject.SetActive(IsSelected);
+    }
+
+    public void ToggleSelection() => SetSelected(!IsSelected);
+
+}
+
+public class PersonController : GamePiece
+{
     [SerializeField] private PersonData _coreStats;
     public PersonDataRuntime Stats { get; set; } = new PersonDataRuntime();
     public PersonData CoreStats { get => _coreStats; set => _coreStats = value; }
@@ -28,6 +39,7 @@ public class PersonController : MonoBehaviour
     void Start()
     {
         Stats = new PersonDataRuntime();
+        LastTimeAccountedFor = GameClock.Current.Now;
     }
 
     private void Update()
@@ -35,21 +47,25 @@ public class PersonController : MonoBehaviour
         HandleMovement();
     }
 
-
+    DateTime LastTimeAccountedFor { get; set; }
     private void HandleMovement()
     {
         Vector3 bearing = Vector3.zero;
 
         Debug.DrawLine(transform.position, Stats.CurrentDestination, Color.magenta);
-        if (Stats.CurrentSpeed != 0 )
+        if (Stats.CurrentSpeed != 0)
         {
             bearing = (Stats.CurrentDestination - transform.position).normalized;
         }
 
-        var delta = bearing * Stats.CurrentSpeed * Time.deltaTime;
-        transform.position = transform.position + delta;
+        float elapsedTimeSeconds = (float)(GameClock.Current.Now - LastTimeAccountedFor).TotalSeconds;
+        LastTimeAccountedFor = GameClock.Current.Now;
 
-        if ( Vector2.Distance(transform.position, Stats.CurrentDestination) < 1)
+        var deltaFeet = elapsedTimeSeconds * Stats.CurrentSpeed * bearing;
+        var deltaWp = GameConfig.Current.FeetPerUnit * deltaFeet;
+        transform.position = transform.position + deltaWp;
+
+        if (Vector2.Distance(transform.position, Stats.CurrentDestination) < 1)
         {
             transform.position = Stats.CurrentDestination;
             Stats.CurrentSpeed = 0;
@@ -58,15 +74,9 @@ public class PersonController : MonoBehaviour
         //UpdateAnimationVariables();
     }
 
-    public void ToggleSelection()
-    {
-        IsSelected = !IsSelected;
-        SelectedHighlight.gameObject.SetActive(IsSelected);
-    }
-
     public void SetCurrentMovementDestination(Vector3 dst)
     {
-        Stats.CurrentDestination = dst;
+        Stats.CurrentDestination = new Vector3(dst.x, dst.y, transform.position.z);
         Stats.CurrentSpeed = CoreStats.WalkingSpeed;
     }
 }

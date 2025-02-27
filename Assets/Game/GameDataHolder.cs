@@ -1,23 +1,23 @@
 ﻿using Unity.VisualScripting;
 using UnityEngine;
 
-public class GameStateHolder : MonoBehaviour, ISingleton
+public class GameDataHolder : MonoBehaviour, ISingleton
 {
-    [SerializeField] private GameStateData _gameState;
+    [SerializeField] private GameState _gameState;
     [SerializeField] private GameClock _gameClock;
     [SerializeField] private GameConfig _gameConfig;
-    public GameStateData GameState => _gameState;
+    public GameState GameState => _gameState;
     public GameConfig GameConfig => _gameConfig;
     public GameClock GameClock { get => _gameClock; set => _gameClock = value; }
 
-    private static GameStateHolder _instance;
-    public static GameStateHolder Current
+    private static GameDataHolder _instance;
+    public static GameDataHolder Current
     {
         get
         {
             if (null == _instance)
             {
-                _instance = FindFirstObjectByType<GameStateHolder>();
+                _instance = FindFirstObjectByType<GameDataHolder>();
                 //if (_instance == null)
                 //{
                 //    GameObject singleton = new GameObject(typeof(GameStateHolder).Name);

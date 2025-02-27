@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Unity.VisualScripting;
 using UnityEngine;
 
 public enum ClockEventKind
@@ -17,7 +18,6 @@ public enum ClockEventKind
 public class ClockEvent
 {
     public ClockEventKind ClockEventKind;
-    public float SunlightIntensity;
     public TimeSpan CurrentTime;
 }
 
@@ -43,15 +43,10 @@ public class TimeBasedCallback
 
 public class GameClock : MonoBehaviour
 {
-    public static GameClock Current => GameStateHolder.Current.GameClock;
+    public static GameClock Current => GameDataHolder.Current.GameClock;
 
     public bool OnlyTickInPlayingMode = true;
-    public UnityEngine.Rendering.Universal.Light2D Sunlight;
-    public UnityEngine.Rendering.Universal.Light2D Skylight;
-    public UnityEngine.Rendering.Universal.Light2D OutsideWindowLight;
-    public TimeSpan GameElapsedTime => GameStateData.Current.CurrentDate - GameStateData.Current.StartDate;
-
-    public bool DoAdjustSunlight = true;
+    public TimeSpan GameElapsedTime => GameState.Current.CurrentDate - GameState.Current.StartDate;
 
     public event EventHandler<ClockEvent> OnClockEvent;
     public event EventHandler<ClockEvent> OnSunriseSunset;
@@ -60,17 +55,19 @@ public class GameClock : MonoBehaviour
     List<TimeBasedCallback> RegisteredCallbacks { get; set; } = new List<TimeBasedCallback>();
 
     public SerializableDateTime StartDate { get; set; }
-    public SerializableDateTime CurrentDate { get; set; }
+    public SerializableDateTime CurrentDate => GameState.Current.CurrentDate;
     public int DaysPlayed => (CurrentDate - (DateTime)StartDate).Days;
 
     private float LastTimeCounted { get; set; }
     private ClockEventKind? LastSunriseSetEvent { get; set; }
-    private float LastSunlightIntensitySet { get; set; } = 1f;
     public int LastMidnightEventSentDay { get; set; } = 0;
     public TimeSpan CurrentPhaseElapsed { get; set; } = TimeSpan.Zero;
     public float ElapsedGameSecondsForPhase => (float)CurrentPhaseElapsed.TotalSeconds;
 
     public float GamePhaseMaxLengthInMinutes = 5;
+
+    [Tooltip("The length of the day phase currently in effect.")]
+    [DoNotSerialize] public float _activeDayLengthInGameMinutes = 1;
 
 
     private void Start()
@@ -80,7 +77,6 @@ public class GameClock : MonoBehaviour
 
     private void Initialize()
     {
-        LastSunlightIntensitySet = 1;
         LastSunriseSetEvent = IsDay ? ClockEventKind.Sunrise : ClockEventKind.Sunset;
         DetermineCurrentPhaseLength();
         LastMidnightEventSentDay = 0;
@@ -101,13 +97,13 @@ public class GameClock : MonoBehaviour
         //DiagnosticController.Current.Add("Game Days", GameElapsedTime.Days);
         //DiagnosticController.Current.Add("Days Played", PlayerStateData.Current.CurrentInventory.DaysPlayed);
 
-        if (!OnlyTickInPlayingMode || GameStateData.Current.GamePhase == GameMode.Playing)
+        if (!OnlyTickInPlayingMode || GameState.Current.GamePhase == GameMode.Playing)
         {
             var clockTimeElapsed = Time.time - LastTimeCounted;
             var relGameTimeElapsed = CalculateRelativeGameTime(clockTimeElapsed);
 
             CurrentPhaseElapsed += TimeSpan.FromSeconds(clockTimeElapsed);
-            GameStateData.Current.CurrentDate += relGameTimeElapsed;
+            GameState.Current.CurrentDate += relGameTimeElapsed;
             SendEvents();
         }
         LastTimeCounted = Time.time;
@@ -117,14 +113,13 @@ public class GameClock : MonoBehaviour
     {
         var clockTimeElapsed = (Time.time + secondsFromNow) - LastTimeCounted;
         var relGameTimeElapsed = CalculateRelativeGameTime(clockTimeElapsed);
-        return (GameStateData.Current.CurrentDate + relGameTimeElapsed).TimeOfDay;
+        return (GameState.Current.CurrentDate + relGameTimeElapsed).TimeOfDay;
     }
 
-    public bool IsGameDayRealTimeSetToMax => GameStateData.Current.DayAndTimeTraits.ActiveDayLengthInGameMinutes == GamePhaseMaxLengthInMinutes;
+    public bool IsGameDayRealTimeSetToMax => _activeDayLengthInGameMinutes == GamePhaseMaxLengthInMinutes;
     public void SetGameDayRealTimeToMax()
     {
-        GameStateData.Current.DayAndTimeTraits.ActiveDayLengthInGameMinutes = GamePhaseMaxLengthInMinutes;
-        GameStateData.Current.DayAndTimeTraits.ActiveNightLengthInGameMinutes = GamePhaseMaxLengthInMinutes;
+        _activeDayLengthInGameMinutes = GamePhaseMaxLengthInMinutes;
     }
 
     public void RestoreGameDayRealTimeToNormal()
@@ -135,31 +130,27 @@ public class GameClock : MonoBehaviour
     public void DetermineCurrentPhaseLength()
     {
         DetermineDayPhaseLength();
-        DetermineNightPhaseLength();
     }
-
-    public float SunlightIntensity => Sunlight.intensity;
 
     private void SendEvents()
     {
         if (LastSunriseSetEvent == ClockEventKind.Sunset && IsDay)
         {
             CurrentPhaseElapsed = TimeSpan.Zero;
-            ResetNightLength();
             DetermineCurrentPhaseLength();
-            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunrise, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
-            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunrise, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
+            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunrise, CurrentTime = TimeOfDay });
+            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunrise, CurrentTime = TimeOfDay });
             LastSunriseSetEvent = ClockEventKind.Sunrise;
         }
 
-        DayAndTimeParameters dayTraits = GameStateData.Current.DayAndTimeTraits;
+        ClockConfig dayTraits = GameState.Current.DayAndTimeTraits;
         TimeSpan set = TimeSpan.FromHours(dayTraits.Sunset);
         TimeSpan transitionSpan = TimeSpan.FromMinutes(dayTraits.TransitionTimeMinutes);
 
         if (LastSunriseSetEvent == ClockEventKind.Sunrise && TimeOfDay > (set - transitionSpan))
         {
-            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Dusk, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
-            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Dusk, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
+            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Dusk, CurrentTime = TimeOfDay });
+            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Dusk, CurrentTime = TimeOfDay });
             LastSunriseSetEvent = ClockEventKind.Dusk;
         }
 
@@ -168,14 +159,14 @@ public class GameClock : MonoBehaviour
             CurrentPhaseElapsed = TimeSpan.Zero;
             ResetDayLength();
             DetermineCurrentPhaseLength();
-            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunset, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
-            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunset, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
+            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunset, CurrentTime = TimeOfDay });
+            OnSunriseSunset?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Sunset, CurrentTime = TimeOfDay });
             LastSunriseSetEvent = ClockEventKind.Sunset;
         }
 
         if (TimeOfDay.TotalMinutes < 60 && LastMidnightEventSentDay < GameElapsedTime.Days)
         {
-            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Midnight, SunlightIntensity = Sunlight.intensity, CurrentTime = TimeOfDay });
+            OnClockEvent?.Invoke(this, new ClockEvent { ClockEventKind = ClockEventKind.Midnight, CurrentTime = TimeOfDay });
             LastMidnightEventSentDay = GameElapsedTime.Days;
         }
 
@@ -242,7 +233,7 @@ public class GameClock : MonoBehaviour
     {
         get
         {
-            DayAndTimeParameters dayTraits = GameStateData.Current.DayAndTimeTraits;
+            ClockConfig dayTraits = GameState.Current.DayAndTimeTraits;
             TimeSpan sunsetAt = TimeSpan.FromHours(dayTraits.Sunset);
             TimeSpan transitionSpan = TimeSpan.FromMinutes(dayTraits.TransitionTimeMinutes);
 
@@ -250,18 +241,13 @@ public class GameClock : MonoBehaviour
         }
     }
 
-    public bool IsDay => GameStateData.Current.CurrentDate.TimeOfDay > TimeSpan.FromHours(GameStateData.Current.DayAndTimeTraits.Sunrise) && GameStateData.Current.CurrentDate.TimeOfDay < TimeSpan.FromHours(GameStateData.Current.DayAndTimeTraits.Sunset);
+    public bool IsDay => GameState.Current.CurrentDate.TimeOfDay > TimeSpan.FromHours(GameState.Current.DayAndTimeTraits.Sunrise) && GameState.Current.CurrentDate.TimeOfDay < TimeSpan.FromHours(GameState.Current.DayAndTimeTraits.Sunset);
     public bool IsNight => !IsDay;
 
     TimeSpan CalculateRelativeGameTime(float deltaTimeGameSeconds)
     {
-        DayAndTimeParameters dayTraits = GameStateData.Current.DayAndTimeTraits;
-
-        // is it day or night - then choose which game span to use
-        if (IsDay)
-            return CalculateRelativeGameTime(deltaTimeGameSeconds, dayTraits.ActiveDayLengthInGameMinutes, TimeSpan.FromHours(dayTraits.Sunset - dayTraits.Sunrise));
-        else
-            return CalculateRelativeGameTime(deltaTimeGameSeconds, dayTraits.ActiveNightLengthInGameMinutes, TimeSpan.FromHours(24 - (dayTraits.Sunset - dayTraits.Sunrise)));
+        ClockConfig dayTraits = GameState.Current.DayAndTimeTraits;
+        return CalculateRelativeGameTime(deltaTimeGameSeconds, _activeDayLengthInGameMinutes, TimeSpan.FromHours(24));
     }
 
 
@@ -270,9 +256,8 @@ public class GameClock : MonoBehaviour
         float dayLengthMinutes = 1;
         try
         {
-            dayLengthMinutes = GameStateData.Current.DayAndTimeTraits.DayLengthBaseInGameMinutes;
-            dayLengthMinutes += SecondsAsMinutes(GameStateData.Current.DayAndTimeTraits.DayLengthPerActivityInGameSeconds);
-            dayLengthMinutes = Mathf.Min(dayLengthMinutes, GameStateData.Current.DayAndTimeTraits.DayLengthMaxInGameMinutes);
+            dayLengthMinutes = GameState.Current.DayAndTimeTraits.DayLengthBaseInGameMinutes;
+            dayLengthMinutes = Mathf.Min(dayLengthMinutes, GameState.Current.DayAndTimeTraits.DayLengthMaxInGameMinutes);
         }
         catch (Exception)
         {
@@ -280,58 +265,17 @@ public class GameClock : MonoBehaviour
         finally
         {
             //DiagnosticController.Current.Add("Day length", dayLength);
-            GameStateData.Current.DayAndTimeTraits.ActiveDayLengthInGameMinutes = dayLengthMinutes;
+            _activeDayLengthInGameMinutes = dayLengthMinutes;
         }
     }
 
     private void ResetDayLength()
     {
-        GameStateData.Current.DayAndTimeTraits.ActiveDayLengthInGameMinutes = GameStateData.Current.DayAndTimeTraits.DayLengthBaseInGameMinutes;
+        _activeDayLengthInGameMinutes = GameState.Current.DayAndTimeTraits.DayLengthBaseInGameMinutes;
     }
 
     public static float SecondsAsMinutes(float seconds) => (float)TimeSpan.FromSeconds(seconds).TotalMinutes;
     public static float MinutesAsSeconds(float min) => (float)TimeSpan.FromMinutes(min).TotalSeconds;
-
-    private void DetermineNightPhaseLength()
-    {
-        float nightLengthSeconds = 10;
-
-        try
-        {
-            int numHealthyPlants = 0;
-            // TODO: review
-            //foreach (var pp in InventoryToManage.Items)
-            //{
-            //    var rtt = InventoryToManage.GetPlantRuntimeTraits(pp.Plant);
-            //    if (PlantHealthManager.IsPlantHealthyOverall(rtt))
-            //        numHealthyPlants++;
-            //}
-
-            nightLengthSeconds = GameStateData.Current.DayAndTimeTraits.NightLengthMinInGameSeconds;
-
-            if (numHealthyPlants > 0)
-            {
-                nightLengthSeconds =
-                    GameStateData.Current.DayAndTimeTraits.NightLengthBaseLengthInGameSeconds +
-                    (GameStateData.Current.DayAndTimeTraits.NightLengthPerActivityInGameSeconds * numHealthyPlants);
-            }
-
-            nightLengthSeconds = Mathf.Min(nightLengthSeconds, GameStateData.Current.DayAndTimeTraits.NightLengthMaxInGameSeconds);
-            //DiagnosticController.Current.Add("Night length", nightLengthSeconds);
-        }
-        catch (Exception)
-        {
-        }
-        finally
-        {
-            GameStateData.Current.DayAndTimeTraits.ActiveNightLengthInGameMinutes = SecondsAsMinutes(nightLengthSeconds);
-        }
-    }
-
-    private void ResetNightLength()
-    {
-        GameStateData.Current.DayAndTimeTraits.ActiveNightLengthInGameMinutes = SecondsAsMinutes(GameStateData.Current.DayAndTimeTraits.NightLengthMinInGameSeconds);
-    }
 
     /// <summary>
     /// 

@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 79b6a44f7ecf15d41b1309ec2d3c38fb, type: 3}
   m_Name: Hank
   m_EditorClassIdentifier: 
-  _walkingSpeed: 2
+  _walkingSpeed: 1

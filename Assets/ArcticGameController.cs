@@ -14,7 +14,19 @@ public class ArcticGameController : MonoBehaviour
     {
         InputActions = new InputSystem_Actions();
         InputActions.UI.Click.performed += Click_performed;
+        InputActions.UI.RightClick.performed += RightClick_performed;
+        InputActions.UI.Cancel.performed += Cancel_performed;
         InputActions.Enable();
+    }
+
+    private void Cancel_performed(UnityEngine.InputSystem.InputAction.CallbackContext obj)
+    {
+        ClearSelection();
+    }
+
+    private void RightClick_performed(UnityEngine.InputSystem.InputAction.CallbackContext obj)
+    {
+        ClearSelection();
     }
 
     private void Click_performed(UnityEngine.InputSystem.InputAction.CallbackContext obj)
@@ -30,27 +42,69 @@ public class ArcticGameController : MonoBehaviour
         GameObject hitItem = ScanForClickedItem(clickedPos);
         if (hitItem == null)
         {
-            if ( CurrentlySelectedPerson != null)
+            if (CurrentPerson != null)
             {
-                CurrentlySelectedPerson.SetCurrentMovementDestination(clickedPos);
+                CurrentPerson.SetCurrentMovementDestination(clickedPos);
+            }
+            else
+            {
+                ClearSelection();
             }
         }
         else
         {
-        if (hitItem.TryGetComponent(out PersonController pc))
-            HandlePlayerClick(pc);
+            if (hitItem.TryGetComponent(out PersonController pc))
+            {
+                if (CurrentSelection != null && CurrentSelection != pc)
+                    CurrentSelection.SetSelected(false);
+
+                HandlePlayerClick(pc);
+            }
+            else if (hitItem.TryGetComponent(out GamePiece generalGamePiece))
+            {
+                HandleNonPlayerClick(generalGamePiece, clickedPos);
+            }
 
         }
     }
 
-    PersonController CurrentlySelectedPerson { get; set; }
+    private void HandleNonPlayerClick(GamePiece generalGamePiece, Vector3 clickedPos)
+    {
+        if (CurrentSelection == generalGamePiece)
+        {
+            ClearSelection();
+            return;
+        }
+
+        if (CurrentPerson != null)
+        {
+            CurrentPerson.SetCurrentMovementDestination(clickedPos);
+            return;
+        }
+
+        ClearSelection();
+        CurrentSelection = generalGamePiece;
+        CurrentSelection.SetSelected(true);
+    }
+
+    void ClearSelection()
+    {
+        if (CurrentSelection != null)
+            CurrentSelection.SetSelected(false);
+        CurrentSelection = null;
+        CurrentPerson = null;
+    }
+
+    GamePiece CurrentSelection { get; set; }
+    PersonController CurrentPerson { get; set; }
 
     private void HandlePlayerClick(PersonController pc)
     {
         if (pc == null) return;
 
         pc.ToggleSelection();
-        CurrentlySelectedPerson = pc.IsSelected ? pc : null;
+        CurrentSelection = pc.IsSelected ? pc : null;
+        CurrentPerson = pc.IsSelected ? pc : null;
     }
 
     private GameObject ScanForClickedItem(Vector3 wp)
@@ -64,6 +118,6 @@ public class ArcticGameController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        
+
     }
 }
